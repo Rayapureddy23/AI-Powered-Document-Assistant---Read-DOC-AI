@@ -79,16 +79,3 @@ def stream_answer(question: str, chunks: list, history: list):
         delta = part.choices[0].delta.content
         if delta:
             yield delta
-def generate_summary(question: str, chunks: list) -> str:
-    """Summary-mode answer: samples chunks from across the document."""
-    from src.config import SUMMARY_SYSTEM_PROMPT
-    user = (f"Excerpts from the document:\n{_format_context(chunks)}\n\n---\n\n"
-            f"Request: {question}")
-    resp = _client().chat.completions.create(
-        model=OLLAMA_MODEL,
-        messages=[{"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-                  {"role": "user",   "content": user}],
-        max_tokens=700,
-        temperature=0.2,
-    )
-    return resp.choices[0].message.content.strip()

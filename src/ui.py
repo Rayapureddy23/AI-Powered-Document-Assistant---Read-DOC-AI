@@ -1,7 +1,7 @@
 """
 ui.py — Shared theme and sidebar status.
-Purple professional theme. The sidebar status block appears on EVERY
-page so the uploaded document and index state are always visible.
+Purple professional theme. Shows ONLY the document uploaded in the
+current session — nothing is restored from previous runs.
 """
 
 import os
@@ -39,42 +39,26 @@ h3 {{ font-size: 1.0rem; font-weight: 600; color: #3B2A5E; }}
 """
 
 
-def _doc_status_sidebar():
-    """Always-visible status of document, indexes and LLM — on every page."""
+def doc_status_sidebar():
+    """Current-session document status only. No restore from disk."""
     with st.sidebar:
-        st.markdown("#### 📄 Document status")
-        paths = st.session_state.get("file_paths") or _restore_uploads()
+        st.markdown("#### 📄 Document")
+        paths = st.session_state.get("file_paths") or []
         if paths:
             for p in paths:
                 st.markdown(f"✅ **{os.path.basename(p)}**")
+            built = sorted(st.session_state.get("built_sizes", set()))
+            if built:
+                st.caption("Indexes: " + ", ".join(str(b) for b in built) + " chars")
         else:
-            st.caption("No document uploaded yet — go to the **app** page.")
-
-        built = sorted(st.session_state.get("built_sizes", set()))
-        if built:
-            st.markdown("**Indexes built:** " + ", ".join(f"`{b}`" for b in built))
-        else:
-            st.caption("No indexes built yet.")
+            st.caption("No document uploaded — go to the **app** page.")
         st.divider()
-
-
-def _restore_uploads():
-    """After a full restart, re-discover previously uploaded files on disk."""
-    up_dir = os.path.join("data", "uploads")
-    if os.path.isdir(up_dir):
-        paths = [os.path.abspath(os.path.join(up_dir, f))
-                 for f in sorted(os.listdir(up_dir))
-                 if f.lower().endswith((".pdf", ".html", ".htm", ".txt"))]
-        if paths:
-            st.session_state["file_paths"] = paths
-            return paths
-    return []
 
 
 def apply_theme(title: str, subtitle: str = "", show_status: bool = True):
     st.markdown(CSS, unsafe_allow_html=True)
     if show_status:
-        _doc_status_sidebar()
+        doc_status_sidebar()
     st.title(title)
     if subtitle:
         st.caption(subtitle)
