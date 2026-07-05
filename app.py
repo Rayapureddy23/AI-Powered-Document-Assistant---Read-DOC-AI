@@ -117,7 +117,7 @@ with st.sidebar:
 
 # ══════════════════════════ MAIN — CHAT ══════════════════════════════════════
 if not paths:
-    st.markdown("#### 👋 Welcome")
+    st.markdown("#### Welcome")
     st.markdown(
         "1. **Upload** a document in the sidebar\n"
         "2. **Build** the indexes (one click, ~4 minutes first time)\n"
@@ -151,11 +151,27 @@ if prompt := st.chat_input("Ask about your document..."):
                      "Results pages are fully interactive.")
             st.markdown(reply)
         else:
-            chunks  = retriever.search(prompt, top_k=st.session_state["chat_k"])
-            history = [{"role": m["role"], "content": m["content"]}
-                       for m in st.session_state.chat[:-1]][-6:]
-            reply = st.write_stream(stream_answer(prompt, chunks, history))
-            if chunks:
+            is_summary = any(w in prompt.lower() for w in
+                             ("summar", "overview", "what is this document",
+                              "about this document", "main topics"))
+            if is_summary:
+                # Sample evenly across the whole document, not just top-k
+                all_chunks = st.session_state.get("active_chunks", [])
+                step   = max(len(all_chunks) // 12, 1)
+                chunks = all_chunks[::step][:12]
+                from src.llm import generate_summary
+                with st.spinner("Summarising the document..."):
+                    reply = generate_summary(prompt, chunks)
+                st.markdown(reply)
+            else:
+                chunks  = retriever.search(prompt, top_k=st.session_state["chat_k"])
+                history = [{"role": m["role"], "content": m["content"]}
+                           for m in st.session_state.chat[:-1]][-6:]
+                reply = st.write_stream(stream_answer(prompt, chunks, history))
+
+            # Show sources ONLY when the model actually answered
+            refused = "could not find this in your uploaded documents" in reply.lower()
+            if chunks and not refused:
                 pages = sorted({f"p.{c['page_number']}" for c in chunks})
                 st.caption("Sources: " + ", ".join(pages))
     st.session_state.chat.append({"role": "assistant", "content": reply})
