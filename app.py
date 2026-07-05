@@ -1,89 +1,133 @@
 """
 app.py — ReadDoc AI chat interface.
-Upload a document → build indexes → chat with page-cited answers.
+Upload a document → build indexes → select chunk size / k → ask questions.
 """
 
-import os, sys
+import os, sys, shutil
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src import retriever
 from src.llm import stream_answer, ollama_available
-from src.config import CHUNK_SIZES, OLLAMA_MODEL
+from src.config import CHUNK_SIZES, K_VALUES, OLLAMA_MODEL
 from src.ui import apply_theme
 from src.store import init_db
 
 st.set_page_config(page_title="ReadDoc AI", page_icon="📄", layout="wide")
 apply_theme("ReadDoc AI",
-            "RAG document Q&A — upload a document, build the indexes, ask questions.")
+            "RAG document Q&A — upload, build indexes, ask questions with page citations.",
+            show_status=False)   # this page has its own richer sidebar
 init_db()
 st.session_state.setdefault("built_sizes", set())
+st.session_state.setdefault("chat_chunk", 600)
+st.session_state.setdefault("chat_k", 5)
 
-# ── Sidebar: chunk-size control, upload, index ────────────────────────────────
+UPLOAD_DIR = os.path.join("data", "uploads")
+
+# ══════════════════════════ SIDEBAR ══════════════════════════════════════════
 with st.sidebar:
-    st.markdown("#### ⚙️ Chunk size (chat)")
-    custom_size = st.number_input(
-        "Active / custom chunk size (chars)",
-        min_value=100, max_value=3000, step=50,
-        value=st.session_state.get("active_chunk_size", 600),
-        help="Chat retrieval uses this chunk size. Standard study sizes "
-             "(300 / 600 / 1000) stay untouched — a custom value builds an "
-             "extra index without removing anything.")
-    st.session_state["active_chunk_size"] = custom_size
+    st.markdown("## 📄 ReadDoc AI")
+    st.caption("Retrieval-Augmented Generation")
+    st.divider()
 
-    st.markdown("#### 📤 Upload document")
+    # ── 1 · Upload ────────────────────────────────────────────────────────────
+    st.markdown("### 1 · Upload document")
     uploads = st.file_uploader("PDF / HTML / TXT",
                                type=["pdf", "html", "htm", "txt"],
-                               accept_multiple_files=True)
+                               accept_multiple_files=True,
+                               label_visibility="collapsed")
     if uploads:
-        os.makedirs(os.path.join("data", "uploads"), exist_ok=True)
-        paths = []
-        for uf in uploads:
-            p = os.path.join("data", "uploads", uf.name)
-            with open(p, "wb") as f:
-                f.write(uf.getbuffer())
-            paths.append(os.path.abspath(p))
-        st.session_state["file_paths"] = paths
+        new_names = {uf.name for uf in uploads}
+        old_names = {os.path.basename(p)
+                     for p in st.session_state.get("file_paths", [])}
+        if new_names != old_names:
+            # Fresh upload → clear previous uploads and stale indexes
+            shutil.rmtree(UPLOAD_DIR, ignore_errors=True)
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            paths = []
+            for uf in uploads:
+                p = os.path.join(UPLOAD_DIR, uf.name)
+                with open(p, "wb") as f:
+                    f.write(uf.getbuffer())
+                paths.append(os.path.abspath(p))
+            st.session_state["file_paths"]  = paths
+            st.session_state["built_sizes"] = set()
+            for k in ("active_index", "active_chunks", "active_key"):
+                st.session_state.pop(k, None)
 
     paths = st.session_state.get("file_paths") or []
-
     if paths:
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("Build standard\n(300/600/1000)", type="primary",
-                         use_container_width=True):
-                for cs in CHUNK_SIZES:
-                    with st.spinner(f"Chunk {cs}..."):
-                        info = retriever.build_index(paths, cs)
-                    st.session_state["built_sizes"].add(cs)
-                    st.success(f"{cs}: {info['chunks']} chunks")
-        with col_b:
-            if st.button(f"Build custom\n({custom_size})",
-                         use_container_width=True):
-                with st.spinner(f"Chunk {custom_size}..."):
-                    info = retriever.build_index(paths, custom_size)
-                st.session_state["built_sizes"].add(custom_size)
-                st.success(f"{custom_size}: {info['chunks']} chunks")
+        for p in paths:
+            st.success(os.path.basename(p))
+    else:
+        st.info("No document uploaded yet.")
 
-        # keep chat on the selected size if that index exists
-        if custom_size in st.session_state["built_sizes"]:
-            retriever.build_index(paths, custom_size)   # instant cache load
+    # ── 2 · Build indexes ─────────────────────────────────────────────────────
+    st.markdown("### 2 · Build indexes")
+    if st.button("⚙ Build all indexes (300 / 600 / 1000)",
+                 type="primary", use_container_width=True,
+                 disabled=not paths):
+        for cs in CHUNK_SIZES:
+            with st.spinner(f"Building chunk size {cs}..."):
+                info = retriever.build_index(paths, cs)
+            st.session_state["built_sizes"].add(cs)
+            st.success(f"{cs} chars — {info['chunks']:,} chunks")
+
+    built = st.session_state["built_sizes"]
+    if built:
+        st.caption("Built: " + ", ".join(str(b) for b in sorted(built)) + " chars")
+
+    # ── 3 · Chat retrieval settings (buttons) ─────────────────────────────────
+    st.markdown("### 3 · Retrieval settings")
+    st.caption("Chunk size")
+    chunk_choice = st.segmented_control(
+        "Chunk size", options=CHUNK_SIZES,
+        default=st.session_state["chat_chunk"],
+        label_visibility="collapsed")
+    if chunk_choice:
+        st.session_state["chat_chunk"] = chunk_choice
+
+    st.caption("Retrieval depth k")
+    k_choice = st.segmented_control(
+        "Retrieval depth", options=K_VALUES,
+        default=st.session_state["chat_k"],
+        label_visibility="collapsed")
+    if k_choice:
+        st.session_state["chat_k"] = k_choice
+
+    # keep the active index in sync with the selected chunk size
+    if paths and st.session_state["chat_chunk"] in built:
+        retriever.build_index(paths, st.session_state["chat_chunk"])  # cached, instant
 
     st.divider()
+
+    # ── Status footer ─────────────────────────────────────────────────────────
     ok, msg = ollama_available()
     (st.success if ok else st.warning)(msg)
-    st.caption(f"LLM: {OLLAMA_MODEL} · Embeddings: all-MiniLM-L6-v2 · FAISS")
+    st.caption(f"Embeddings: all-MiniLM-L6-v2 · Index: FAISS")
 
-    if st.button("🗑 Reset all data", use_container_width=True):
-        import shutil
+    if st.button("🗑 Reset session", use_container_width=True):
         shutil.rmtree("data", ignore_errors=True)
-        for k in ("file_paths", "built_sizes", "chat", "active_index",
-                  "active_chunks", "active_key"):
+        for k in ("file_paths", "built_sizes", "chat",
+                  "active_index", "active_chunks", "active_key"):
             st.session_state.pop(k, None)
+        st.cache_data.clear()
         st.rerun()
 
-# ── Chat ──────────────────────────────────────────────────────────────────────
+# ══════════════════════════ MAIN — CHAT ══════════════════════════════════════
+if not paths:
+    st.markdown("#### 👋 Welcome")
+    st.markdown(
+        "1. **Upload** a document in the sidebar\n"
+        "2. **Build** the indexes (one click, ~4 minutes first time)\n"
+        "3. **Select** chunk size and retrieval depth\n"
+        "4. **Ask** questions — answers cite the source pages")
+    st.stop()
+
+st.caption(f"Chat retrieval → chunk **{st.session_state['chat_chunk']}** chars · "
+           f"k = **{st.session_state['chat_k']}**")
+
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
@@ -99,15 +143,15 @@ if prompt := st.chat_input("Ask about your document..."):
     with st.chat_message("assistant"):
         ok, _ = ollama_available()
         if not retriever.is_ready():
-            reply = "Please upload a document and build the indexes first (sidebar)."
+            reply = "Please build the indexes first (sidebar, step 2)."
             st.markdown(reply)
         elif not ok:
             reply = ("Demo note: the local LLM (Ollama) is not available on this "
-                     "server, so live answers are disabled here. The Methodology "
-                     "and Results pages are fully interactive.")
+                     "server, so live answers are disabled. Methodology, EDA and "
+                     "Results pages are fully interactive.")
             st.markdown(reply)
         else:
-            chunks  = retriever.search(prompt, top_k=5)
+            chunks  = retriever.search(prompt, top_k=st.session_state["chat_k"])
             history = [{"role": m["role"], "content": m["content"]}
                        for m in st.session_state.chat[:-1]][-6:]
             reply = st.write_stream(stream_answer(prompt, chunks, history))
