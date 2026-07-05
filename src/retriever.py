@@ -1,9 +1,10 @@
 """
 retriever.py — Embeddings + FAISS vector search.
 =================================================
-One cached index per (document set, chunk size). Exact L2 search
-(IndexFlatL2) guarantees deterministic, reproducible retrieval —
-the same query always returns the same chunks.
+Three cache layers:
+  1. In-memory (st.cache_resource) — index+chunks load ONCE per session
+  2. On-disk (data/faiss_*.index)  — survives restarts, skips re-embedding
+  3. Embedding model               — loaded once
 """
 
 import os, pickle, hashlib
@@ -28,36 +29,35 @@ def _cache_key(file_paths: list, chunk_size: int) -> str:
     return f"{chunk_size}_{h}"
 
 
-def build_index(file_paths: list, chunk_size: int) -> dict:
-    """Build (or load from cache) the FAISS index for one chunk size."""
+@st.cache_resource(show_spinner=False)
+def _load_or_build(key: str, file_paths: tuple, chunk_size: int):
+    """Heavy work happens here exactly once per key per session.
+    Returns (faiss_index, chunks). Cached in memory by Streamlit."""
     import faiss
 
-    key        = _cache_key(file_paths, chunk_size)
-    index_path = os.path.join(DATA_DIR, f"faiss_{key}.index")
+    index_path  = os.path.join(DATA_DIR, f"faiss_{key}.index")
     chunks_path = os.path.join(DATA_DIR, f"chunks_{key}.pkl")
 
-    # Cached → instant load
+    # Disk cache hit → single load into memory for the whole session
     if os.path.exists(index_path) and os.path.exists(chunks_path):
         index = faiss.read_index(index_path)
         with open(chunks_path, "rb") as f:
             chunks = pickle.load(f)
-        st.session_state["active_index"]  = index
-        st.session_state["active_chunks"] = chunks
-        st.session_state["active_key"]    = key
-        return {"chunks": len(chunks), "cached": True}
+        return index, chunks, True
 
-    # Fresh build
-    pages  = []
+    # Fresh build (embedding is the slow step — batch 128 for speed)
+    pages = []
     for fp in file_paths:
         pages.extend(extract_pages(fp))
     chunks = chunk_pages(pages, chunk_size)
     if not chunks:
         raise ValueError("No text extracted from the uploaded document(s).")
 
-    model      = get_embedding_model()
+    model = get_embedding_model()
     embeddings = model.encode([c["text"] for c in chunks],
-                              show_progress_bar=False, batch_size=64)
-    embeddings = np.asarray(embeddings, dtype="float32")
+                              show_progress_bar=False,
+                              batch_size=128,
+                              convert_to_numpy=True).astype("float32")
 
     index = faiss.IndexFlatL2(embeddings.shape[1])
     index.add(embeddings)
@@ -65,15 +65,28 @@ def build_index(file_paths: list, chunk_size: int) -> dict:
     faiss.write_index(index, index_path)
     with open(chunks_path, "wb") as f:
         pickle.dump(chunks, f)
+    return index, chunks, False
 
+
+def build_index(file_paths: list, chunk_size: int) -> dict:
+    """Activate the index for one chunk size. Instant if already in memory."""
+    key = _cache_key(file_paths, chunk_size)
+    index, chunks, cached = _load_or_build(key, tuple(file_paths), chunk_size)
     st.session_state["active_index"]  = index
     st.session_state["active_chunks"] = chunks
     st.session_state["active_key"]    = key
-    return {"chunks": len(chunks), "cached": False}
+    return {"chunks": len(chunks), "cached": cached}
+
+
+def activate_if_needed(file_paths: list, chunk_size: int):
+    """Switch the active index ONLY when the selection changed — zero cost
+    on normal reruns. This replaces the per-rerun build_index call."""
+    key = _cache_key(file_paths, chunk_size)
+    if st.session_state.get("active_key") != key:
+        build_index(file_paths, chunk_size)
 
 
 def search(question: str, top_k: int) -> list:
-    """Return top-k chunks for a question from the active index."""
     index  = st.session_state.get("active_index")
     chunks = st.session_state.get("active_chunks")
     if index is None or not chunks:
