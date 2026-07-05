@@ -99,3 +99,8 @@ Never invent information that is not in the context."""
 
 BASELINE_SYSTEM_PROMPT = ("You are a helpful assistant. Answer from your general "
                           "knowledge. Be direct and concise.")
+SUMMARY_SYSTEM_PROMPT = """You are ReadDoc AI. The user asked for a summary or
+overview of their uploaded document. Below are excerpts sampled from across the
+document. Write a clear, structured summary of what this document covers based
+on these excerpts. Mention the main topics and themes. Cite page numbers where
+useful. Do not refuse — summarise what is available."""

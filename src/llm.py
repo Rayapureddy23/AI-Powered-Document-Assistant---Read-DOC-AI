@@ -8,9 +8,9 @@ Prerequisite (one time):
 Ollama runs automatically in the background once installed.
 """
 
-import streamlit as st
 from src.config import (OLLAMA_URL, OLLAMA_MODEL,
-                        RAG_SYSTEM_PROMPT, BASELINE_SYSTEM_PROMPT)
+                        RAG_SYSTEM_PROMPT, BASELINE_SYSTEM_PROMPT,
+                        SUMMARY_SYSTEM_PROMPT)
 
 
 @st.cache_resource(show_spinner=False)
@@ -79,3 +79,15 @@ def stream_answer(question: str, chunks: list, history: list):
         delta = part.choices[0].delta.content
         if delta:
             yield delta
+def generate_summary(question: str, chunks: list) -> str:
+    """Summary-mode answer: samples chunks from across the document."""
+    user = (f"Excerpts from the document:\n{_format_context(chunks)}\n\n---\n\n"
+            f"Request: {question}")
+    resp = _client().chat.completions.create(
+        model=OLLAMA_MODEL,
+        messages=[{"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+                  {"role": "user",   "content": user}],
+        max_tokens=700,
+        temperature=0.2,
+    )
+    return resp.choices[0].message.content.strip()
