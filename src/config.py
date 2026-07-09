@@ -10,7 +10,7 @@ Research question:
 
 Everything configurable lives here. No magic numbers anywhere else.
 """
-
+RELEVANCE_THRESHOLD = 0.5   # cosine sim to reference answer for a chunk to count as relevant
 # ── LLM (Ollama — local, zero API, zero quota) ────────────────────────────────
 OLLAMA_URL   = "http://localhost:11434/v1"
 OLLAMA_MODEL = "llama3.2:3b"          # change to match `ollama list`
@@ -104,3 +104,4 @@ overview of their uploaded document. Below are excerpts sampled from across the
 document. Write a clear, structured summary of what this document covers based
 on these excerpts. Mention the main topics and themes. Cite page numbers where
 useful. Do not refuse — summarise what is available."""
+

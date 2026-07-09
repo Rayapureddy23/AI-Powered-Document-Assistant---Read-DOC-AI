@@ -1,37 +1,28 @@
 """
 metrics.py — Fully automated evaluation metrics.
 =================================================
-Every metric is computed deterministically from embeddings and
-ground-truth page labels. NO LLM judge — this removes the entire
-class of failures encountered with LLM-as-judge approaches
-(parse errors, timeouts, rate limits, NaN scores) and makes every
-score exactly reproducible.
+All metrics are deterministic (embeddings + fixed threshold). No LLM judge,
+and no hand-labelled page numbers: retrieval relevance is derived
+semantically — a retrieved chunk is RELEVANT if its embedding similarity
+to the expert reference answer meets RELEVANCE_THRESHOLD.
 
-Mapping to the research question:
-
-  RQ construct            Metric(s)
-  ─────────────────────   ─────────────────────────────────────────────
-  Accuracy             →  answer_accuracy   = cos( E(answer), E(reference) )
-                          recall_at_k       = |Relevant ∩ Retrieved| / |Relevant|
-  Contextual relevance →  context_relevance = mean cos( E(question), E(chunk_i) )
-                          precision_at_k    = |Relevant ∩ Retrieved| / |Retrieved|
-                          mrr               = 1 / rank of first relevant chunk
-  Faithfulness         →  faithfulness      = cos( E(answer), mean E(chunks) )
-                          (baseline ≡ 0.0 — no context exists to be faithful to)
-
-Academic grounding:
-  - Embedding cosine similarity is the same operation RAGAS uses inside
-    Answer Relevancy (Es et al., 2023, arXiv:2309.15217).
-  - Precision@k / Recall@k / MRR are classical IR metrics
-    (Manning, Raghavan & Schütze, Introduction to Information Retrieval, 2008).
+  RQ construct            Metric
+  ─────────────────────   ────────────────────────────────────────────
+  Accuracy             →  answer_accuracy  = cos(E(answer), E(reference))
+                          recall_at_k      = hit@k (≥1 relevant chunk retrieved)
+  Contextual relevance →  context_relevance = mean cos(E(question), E(chunk_i))
+                          precision_at_k   = relevant retrieved / k
+                          mrr              = 1 / rank of first relevant chunk
+  Faithfulness         →  faithfulness     = cos(E(answer), mean E(chunks))
+                          (baseline ≡ 0.0 — no context to be faithful to)
 """
 
 import numpy as np
-from src.config import GROUND_TRUTH, REFUSAL
+from src.config import GROUND_TRUTH, REFUSAL, RELEVANCE_THRESHOLD
 from src.retriever import get_embedding_model
 
 
-def _cos(a: np.ndarray, b: np.ndarray) -> float:
+def _cos(a, b) -> float:
     denom = float(np.linalg.norm(a) * np.linalg.norm(b))
     return float(np.dot(a, b) / denom) if denom else 0.0
 
@@ -42,50 +33,59 @@ def _clip01(x: float) -> float:
 
 def score_question(qid: int, question: str, answer: str, chunks: list,
                    is_baseline: bool = False) -> dict:
-    """All metrics for one question. Deterministic; ~50 ms on CPU."""
     model = get_embedding_model()
     gt    = GROUND_TRUTH[qid]
 
     e_answer    = model.encode([answer])[0]
     e_reference = model.encode([gt["reference"]])[0]
     e_question  = model.encode([question])[0]
+    ctx_vecs    = model.encode([c["text"] for c in chunks]) if chunks else None
 
-    # ── Accuracy: semantic similarity to expert reference answer ─────────────
-    # Out-of-scope handling: correct refusal must score 1.0, hallucination 0.0.
-    if not gt["pages"]:
-        refused = REFUSAL.lower()[:30] in answer.lower() or "could not find" in answer.lower()
+    # ── Accuracy ──────────────────────────────────────────────────────────
+    out_of_scope = not gt["pages"] and gt["reference"] == REFUSAL
+    if out_of_scope:
+        refused = "could not find" in answer.lower()
         answer_accuracy = 1.0 if refused else 0.0
     else:
         answer_accuracy = _clip01(_cos(e_answer, e_reference))
 
-    # ── Faithfulness: grounding of the answer in retrieved context ───────────
-    if is_baseline or not chunks:
-        faithfulness = 0.0                      # no context ⇒ nothing to be faithful to
+    # ── Faithfulness ──────────────────────────────────────────────────────
+    if is_baseline or ctx_vecs is None:
+        faithfulness = 0.0
     else:
-        ctx_vecs     = model.encode([c["text"] for c in chunks])
         faithfulness = _clip01(_cos(e_answer, ctx_vecs.mean(axis=0)))
 
-    # ── Contextual relevance: are retrieved chunks about the question? ───────
-    if is_baseline or not chunks:
+    # ── Context relevance ─────────────────────────────────────────────────
+    if is_baseline or ctx_vecs is None:
         context_relevance = 0.0
     else:
-        sims = [_cos(e_question, v) for v in model.encode([c["text"] for c in chunks])]
-        context_relevance = _clip01(float(np.mean(sims)))
+        context_relevance = _clip01(float(np.mean(
+            [_cos(e_question, v) for v in ctx_vecs])))
 
-    # ── Retrieval metrics vs ground-truth pages ──────────────────────────────
-    if gt["pages"] and chunks and not is_baseline:
-        retrieved = {str(c["page_number"]) for c in chunks}
-        relevant  = {str(p) for p in gt["pages"]}
-        overlap   = retrieved & relevant
-        precision = _clip01(len(overlap) / len(retrieved)) if retrieved else 0.0
-        recall    = _clip01(len(overlap) / len(relevant))  if relevant  else 0.0
-        mrr = 0.0
-        for rank, c in enumerate(chunks, start=1):
-            if str(c["page_number"]) in relevant:
+    # ── Retrieval metrics — semantic relevance, no page labels ────────────
+    if not is_baseline and ctx_vecs is not None and not out_of_scope:
+        sims = [_cos(e_reference, v) for v in ctx_vecs]
+        relevant_flags = [s >= RELEVANCE_THRESHOLD for s in sims]
+        n_relevant = sum(relevant_flags)
+# ── Retrieval metrics — semantic relevance, no page labels ────────────
+    if not is_baseline and ctx_vecs is not None and not out_of_scope:
+        sims = [_cos(e_reference, v) for v in ctx_vecs]
+        relevant_flags = [s >= RELEVANCE_THRESHOLD for s in sims]
+        n_relevant = sum(relevant_flags)
+
+        # ---- TEMPORARY DEBUG (remove later) ----
+        print(f"  Q{qid} k={len(sims)} sims={[round(s,3) for s in sims]}")
+        print(f"  Q{qid} threshold={RELEVANCE_THRESHOLD} n_relevant={n_relevant}")
+        # ---- END DEBUG ----
+        precision = _clip01(sum(relevant_flags) / len(relevant_flags))
+        recall    = 1.0 if any(relevant_flags) else 0.0          # hit@k
+        mrr       = 0.0
+        for rank, flag in enumerate(relevant_flags, start=1):
+            if flag:
                 mrr = _clip01(1.0 / rank)
                 break
     else:
-        precision = recall = mrr = None  # undefined for baseline / out-of-scope
+        precision = recall = mrr = None
 
     return {
         "answer_accuracy":   answer_accuracy,
@@ -98,32 +98,19 @@ def score_question(qid: int, question: str, answer: str, chunks: list,
 
 
 def aggregate(per_question: list) -> dict:
-    """Mean of every metric across questions (skipping None values)."""
     def mean_of(key):
         vals = [q[key] for q in per_question if q.get(key) is not None]
         return round(float(np.mean(vals)), 4) if vals else 0.0
 
-    acc   = mean_of("answer_accuracy")
-    faith = mean_of("faithfulness")
-    ctx   = mean_of("context_relevance")
-    prec  = mean_of("precision_at_k")
-    rec   = mean_of("recall_at_k")
-    mrr   = mean_of("mrr")
+    acc, faith, ctx = mean_of("answer_accuracy"), mean_of("faithfulness"), mean_of("context_relevance")
+    prec, rec, mrr  = mean_of("precision_at_k"), mean_of("recall_at_k"), mean_of("mrr")
 
-    # RQ construct scores
     accuracy_construct  = round((acc + rec) / 2, 4) if rec else acc
     relevance_construct = round((ctx + prec + mrr) / 3, 4) if prec else ctx
     overall             = round((accuracy_construct + relevance_construct + faith) / 3, 4)
 
-    return {
-        "answer_accuracy":     acc,
-        "faithfulness":        faith,
-        "context_relevance":   ctx,
-        "precision_at_k":      prec,
-        "recall_at_k":         rec,
-        "mrr":                 mrr,
-        "rq_accuracy":         accuracy_construct,
-        "rq_relevance":        relevance_construct,
-        "rq_faithfulness":     faith,
-        "overall":             overall,
-    }
+    return {"answer_accuracy": acc, "faithfulness": faith, "context_relevance": ctx,
+            "precision_at_k": prec, "recall_at_k": rec, "mrr": mrr,
+            "rq_accuracy": accuracy_construct, "rq_relevance": relevance_construct,
+            "rq_faithfulness": faith, "overall": overall}
+
