@@ -1,5 +1,5 @@
 """
-2_Run_Experiments.py — One-click fully automated evaluation.
+4_Run_Experiments.py — One-click fully automated evaluation.
 =============================================================
 Per configuration:  generate 10 answers (Ollama) → score 6 metrics
 (deterministic embeddings) → save. No manual input anywhere.
@@ -21,6 +21,13 @@ st.set_page_config(page_title="Run Experiments — ReadDoc AI", page_icon="📄"
 apply_theme("Run Experiments",
             "Fully automated: generate answers → compute metrics → save. Zero manual scoring.")
 init_db()
+
+REFUSAL_MARK = "could not find"
+
+
+def is_refusal(text: str) -> bool:
+    return REFUSAL_MARK in (text or "").lower()
+
 
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
 ok, msg = ollama_available()
@@ -67,8 +74,8 @@ parallel = st.toggle(
     value=True,
     help="Sends 3 questions to Ollama concurrently. The LLM is used ONLY for "
          "generating answers — all metric scoring stays deterministic and "
-         "sequential. Set the environment variable OLLAMA_NUM_PARALLEL=3 "
-         "before starting Ollama for the full speed-up.")
+         "sequential. Set OLLAMA_NUM_PARALLEL=3 before starting Ollama for the "
+         "full speed-up.")
 
 est_min = (2 if parallel else 4) if not is_baseline else (2 if parallel else 3)
 st.caption(f"Estimated time: ~{est_min}–{est_min + 3} minutes "
@@ -81,7 +88,7 @@ if st.button(f"▶ Run {config}", type="primary", use_container_width=True):
         with st.spinner(f"Loading index for chunk size {chunk_size}..."):
             retriever.build_index(file_paths, chunk_size)
 
-    # Step 2 — retrieval first (sequential, uses session state), then generation
+    # Step 2 — retrieval first (sequential), then generation
     prog   = st.progress(0)
     status = st.empty()
 
@@ -123,16 +130,23 @@ if st.button(f"▶ Run {config}", type="primary", use_container_width=True):
     per_question = []
     for i, q in enumerate(QUESTIONS):
         chunks = retrieved[q["id"]]
-        m = score_question(q["id"], q["text"], answers[q["id"]], chunks,
+        answer = answers[q["id"]]
+        m = score_question(q["id"], q["text"], answer, chunks,
                            is_baseline=is_baseline)
         per_question.append(m)
-        sources = ", ".join(sorted({f"p.{c['page_number']}" for c in chunks})) if chunks else ""
-        save_answer(config, q["id"], q["text"], answers[q["id"]], sources, m)
+
+        # Hide source pages when the answer is a refusal (out-of-scope questions)
+        if is_refusal(answer) or not chunks:
+            sources = ""
+        else:
+            sources = ", ".join(sorted({f"p.{c['page_number']}" for c in chunks}))
+
+        save_answer(config, q["id"], q["text"], answer, sources, m)
         prog.progress(0.8 + 0.2 * (i + 1) / len(QUESTIONS))
 
     prog.empty(); status.empty()
 
-    # Step 3 — aggregate + persist
+    # Step 4 — aggregate + persist
     agg = aggregate(per_question)
     save_result(config, chunk_size or 0, top_k or 0, agg, len(per_question))
 
@@ -152,5 +166,6 @@ else:
     for _, row in df_ans.iterrows():
         with st.expander(f"Q{row['question_id']} — {row['question'][:80]}"):
             st.markdown(row["answer"])
-            if row["sources"]:
+            # Only show sources if there are any AND the answer isn't a refusal
+            if row["sources"] and not is_refusal(row["answer"]):
                 st.caption(f"Sources: {row['sources']}")

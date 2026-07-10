@@ -2,7 +2,7 @@
 
 **An Empirical Study of Chunking Strategy and Retrieval Depth in Retrieval-Augmented Generation**
 
-MSc Data Science and Analytics — Research Project
+MSc Data Science  — Research Project
 
 ---
 
