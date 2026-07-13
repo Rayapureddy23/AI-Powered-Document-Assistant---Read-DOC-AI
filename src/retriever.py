@@ -98,3 +98,6 @@ def search(question: str, top_k: int) -> list:
 
 def is_ready() -> bool:
     return st.session_state.get("active_index") is not None
+def search_max(question: str, max_k: int = 10) -> list:
+    """Retrieve the top max_k chunks once; slice for smaller k downstream."""
+    return search(question, top_k=max_k)

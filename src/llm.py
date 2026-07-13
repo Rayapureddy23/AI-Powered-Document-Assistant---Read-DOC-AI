@@ -1,7 +1,7 @@
 """
 llm.py — Answer generation via Ollama (local).
 ===============================================
-Zero API keys. Zero quotas. Fully reproducible.
+
 
 Prerequisite (one time):
     ollama pull llama3.2:3b
