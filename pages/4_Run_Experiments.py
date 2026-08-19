@@ -3,10 +3,6 @@
 ==========================================================================
 ReadDoc AI | MSc Data Science and Analytics
 
-- RUN ALL: Baseline + E1–E9 automatically, fully deterministic (~10–15 min).
-- Silver evidence persists to disk, so it survives leaving/returning the page.
-- Completed experiments load from the database and show per-config Q&A on return.
-
 Three constructs (all deterministic, no LLM judge):
   Accuracy             → Answer Accuracy
   Contextual relevance → Context F1@k
