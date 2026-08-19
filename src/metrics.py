@@ -1,22 +1,6 @@
 """
 metrics.py — Deterministic RAG evaluation, three RQ constructs.
 ===============================================================
-
-All metrics deterministic (embeddings only, no LLM judge) — fast and
-exactly reproducible. Three constructs, mapped to the research question:
-
-  Accuracy             → Answer Accuracy      = cos(answer, reference)
-  Contextual relevance → Context Relevance    = mean cos(question, chunks)
-                         Context Precision@k  = relevant chunks / k
-                         Evidence Recall@k    = silver evidence covered / total
-                         Context F1@k         = harmonic mean of the two
-  Faithfulness         → Faithfulness         = mean over answer sentences of
-                                                max cos(sentence, chunk)
-                                                (sentence-level grounding)
-
-Silver evidence (auto-derived): a corpus chunk is a silver-evidence unit if
-its similarity to the reference answer ≥ threshold, frozen at the smallest
-chunk size. NOT human-annotated — a documented limitation.
 """
 
 import re

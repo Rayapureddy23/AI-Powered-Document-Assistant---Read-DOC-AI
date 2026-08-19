@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src import retriever
 from src.llm import stream_answer, generate_summary, ollama_available
 from src.config import CHUNK_SIZES, K_VALUES, OLLAMA_MODEL
-from src.ui import apply_theme
+from src.ui import apply_theme, build_pdf_preview_html, get_previewable_paths
 from src.store import init_db
 
 st.set_page_config(page_title="ReadDoc AI", page_icon="📄", layout="wide")
@@ -125,6 +125,13 @@ if not paths:
 
 st.caption(f"Retrieval → chunk **{st.session_state['chat_chunk']}** chars · "
            f"k = **{st.session_state['chat_k']}**")
+
+preview_paths = get_previewable_paths(paths)
+if preview_paths:
+    with st.expander("📄 Preview uploaded PDF", expanded=True):
+        for pdf_path in preview_paths:
+            st.caption(os.path.basename(pdf_path))
+            st.components.v1.html(build_pdf_preview_html(pdf_path), height=560, scrolling=True)
 
 if "chat" not in st.session_state:
     st.session_state.chat = []

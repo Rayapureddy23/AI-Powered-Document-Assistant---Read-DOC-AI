@@ -1,20 +1,6 @@
 """
 store.py — SQLite persistence (deterministic 3-construct schema).
 =================================================================
-
-Tables:
-  answers  — per-question audit trail
-  results  — per-configuration aggregated scores (one row per config + run_id)
-  runs     — run registry (run_id, timestamp)
-
-Metrics stored map to the three RQ constructs:
-  Accuracy             → answer_accuracy
-  Contextual relevance → context_relevance, context_precision_at_k,
-                         evidence_recall_at_k, context_f1_at_k
-  Faithfulness         → faithfulness
-
-⚠ SCHEMA CHANGE: incompatible with older databases. Delete the data folder
-before first use (see next steps).
 """
 
 import os, sqlite3

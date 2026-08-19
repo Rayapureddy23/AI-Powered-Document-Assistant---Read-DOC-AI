@@ -1,9 +1,8 @@
 """
-ui.py — Shared theme and sidebar status.
-Purple professional theme. Shows ONLY the document uploaded in the
-current session — nothing is restored from previous runs.
+ui.py — Shared theme, sidebar status, and PDF preview helpers.
 """
 
+import base64
 import os
 import streamlit as st
 
@@ -53,6 +52,29 @@ def doc_status_sidebar():
         else:
             st.caption("No document uploaded — go to the **app** page.")
         st.divider()
+
+
+def get_previewable_paths(paths):
+    """Return only the PDF files from a list of uploaded document paths."""
+    if not paths:
+        return []
+    return [p for p in paths if isinstance(p, str) and os.path.splitext(p)[1].lower() == ".pdf"]
+
+
+def build_pdf_preview_html(file_path: str) -> str:
+    """Create an HTML snippet that embeds a PDF for inline preview in Streamlit."""
+    if not os.path.exists(file_path):
+        return "<div style='padding:12px;color:#6B7280'>PDF file not found.</div>"
+
+    with open(file_path, "rb") as handle:
+        pdf_bytes = handle.read()
+
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    return f"""
+    <div style="width:100%;border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;">
+      <iframe src="data:application/pdf;base64,{pdf_b64}" width="100%" height="520px" type="application/pdf" style="border:none;"></iframe>
+    </div>
+    """
 
 
 def apply_theme(title: str, subtitle: str = "", show_status: bool = True):

@@ -1,9 +1,6 @@
 """
 llm.py — Answer generation via Ollama (local).
 ===============================================
-
-
-Prerequisite (one time):
     ollama pull llama3.2:3b
 """
 
@@ -41,7 +38,7 @@ def _format_context(chunks: list) -> str:
 
 
 def generate_answer(question: str, chunks: list) -> str:
-    """RAG answer — constrained to the retrieved context."""
+    
     user = (f"Context from uploaded documents:\n{_format_context(chunks)}\n\n---\n\n"
             f"Question: {question}") if chunks else question
     resp = _client().chat.completions.create(

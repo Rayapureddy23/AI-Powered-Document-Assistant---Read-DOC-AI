@@ -1,16 +1,3 @@
-"""
-judge.py — LLM-judge Faithfulness (NON-DETERMINISTIC).
-
-⚠ NON-DETERMINISTIC — uses a local Ollama LLM as judge. Report as mean ± std
-over repeated runs; keep separate from deterministic metrics.
-
-Only Faithfulness is judged (the claim-level answer metrics were removed for
-speed). This is ~2 judge calls per question instead of ~6.
-
-  Faithfulness = generated claims supported by retrieved context
-                 ÷ total generated claims
-"""
-
 import json
 import numpy as np
 import streamlit as st
