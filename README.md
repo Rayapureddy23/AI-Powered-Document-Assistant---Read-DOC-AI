@@ -142,9 +142,9 @@ Representative findings from a full run (E5 best on contextual relevance):
 
 **Key findings:**
 
-- **Retrieval improves accuracy** — answer accuracy rises from 0.64 (zero-context baseline) to ~0.80 under retrieval, a clear demonstration of RAG's value.
-- **Retrieval grounds answers** — faithfulness is undefined at baseline (no context) and measurable (0.52–0.64) under retrieval.
-- **Contextual relevance depends on parameters** — Context F1@k peaks at E5 (600 chars, k=5); the precision–recall trade-off across k is the central retrieval finding.
+- **Retrieval improves accuracy** - answer accuracy rises from 0.64 (zero-context baseline) to ~0.80 under retrieval, a clear demonstration of RAG's value.
+- **Retrieval grounds answers** - faithfulness is undefined at baseline (no context) and measurable (0.52–0.64) under retrieval.
+- **Contextual relevance depends on parameters** - Context F1@k peaks at E5 (600 chars, k=5); the precision–recall trade-off across k is the central retrieval finding.
 
 ## Tests
 
@@ -157,11 +157,11 @@ Unit tests validate every metric formula against small worked examples (e.g. Con
 
 ## Methodological Notes
 
-- **Determinism** — all metrics are computed from embeddings; identical inputs yield identical scores.
-- **Silver evidence** — model-derived (not human-annotated); the associated limitation is documented above.
-- **Accuracy** — an embedding-similarity measure; claim-level factual verification is identified as future work.
-- **Dataset scale** — 10 questions (2 out-of-scope) make findings indicative rather than conclusive.
-- **Best-configuration framing** — reported as the *best observed* configuration, with a near-tie warning when configurations differ by less than 0.02. No single composite score drives selection.
+- **Determinism** - all metrics are computed from embeddings; identical inputs yield identical scores.
+- **Silver evidence** - model-derived (not human-annotated); the associated limitation is documented above.
+- **Accuracy** - an embedding-similarity measure; claim-level factual verification is identified as future work.
+- **Dataset scale** - 10 questions (2 out-of-scope) make findings indicative rather than conclusive.
+- **Best-configuration framing** - reported as the *best observed* configuration, with a near-tie warning when configurations differ by less than 0.02. No single composite score drives selection.
 
 ## References
 
